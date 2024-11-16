@@ -5,29 +5,34 @@ namespace MediatR.Tests;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Shouldly;
-using StructureMap;
+using Lamar;
 using Xunit;
 
 public class PipelineTests
 {
     public class Ping : IRequest<Pong>
     {
-        public string Message { get; set; }
+        public string? Message { get; set; }
     }
 
     public class Pong
     {
-        public string Message { get; set; }
+        public string? Message { get; set; }
+    }
+
+    public class VoidPing : IRequest
+    {
+        public string? Message { get; set; }
     }
 
     public class Zing : IRequest<Zong>
     {
-        public string Message { get; set; }
+        public string? Message { get; set; }
     }
 
     public class Zong
     {
-        public string Message { get; set; }
+        public string? Message { get; set; }
     }
 
     public class PingHandler : IRequestHandler<Ping, Pong>
@@ -42,6 +47,21 @@ public class PipelineTests
         {
             _output.Messages.Add("Handler");
             return Task.FromResult(new Pong { Message = request.Message + " Pong" });
+        }
+    }
+
+    public class VoidPingHandler : IRequestHandler<VoidPing>
+    {
+        private readonly Logger _output;
+
+        public VoidPingHandler(Logger output)
+        {
+            _output = output;
+        }
+        public Task Handle(VoidPing request, CancellationToken cancellationToken)
+        {
+            _output.Messages.Add("Handler");
+            return Task.CompletedTask;
         }
     }
 
@@ -79,6 +99,25 @@ public class PipelineTests
         }
     }
 
+    public class OuterVoidBehavior : IPipelineBehavior<VoidPing, Unit>
+    {
+        private readonly Logger _output;
+
+        public OuterVoidBehavior(Logger output)
+        {
+            _output = output;
+        }
+
+        public async Task<Unit> Handle(VoidPing request, RequestHandlerDelegate<Unit> next, CancellationToken cancellationToken)
+        {
+            _output.Messages.Add("Outer before");
+            var response = await next();
+            _output.Messages.Add("Outer after");
+
+            return response;
+        }
+    }
+
     public class InnerBehavior : IPipelineBehavior<Ping, Pong>
     {
         private readonly Logger _output;
@@ -98,8 +137,27 @@ public class PipelineTests
         }
     }
 
-    public class InnerBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse>
-        where TRequest : IRequest<TResponse>
+    public class InnerVoidBehavior : IPipelineBehavior<VoidPing, Unit>
+    {
+        private readonly Logger _output;
+
+        public InnerVoidBehavior(Logger output)
+        {
+            _output = output;
+        }
+
+        public async Task<Unit> Handle(VoidPing request, RequestHandlerDelegate<Unit> next, CancellationToken cancellationToken)
+        {
+            _output.Messages.Add("Inner before");
+            var response = await next();
+            _output.Messages.Add("Inner after");
+
+            return response;
+        }
+    }
+
+    public class InnerBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse> 
+        where TRequest : notnull
     {
         private readonly Logger _output;
 
@@ -118,8 +176,7 @@ public class PipelineTests
         }
     }
 
-    public class OuterBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse>
-        where TRequest : IRequest<TResponse>
+    public class OuterBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse> where TRequest : notnull
     {
         private readonly Logger _output;
 
@@ -139,7 +196,7 @@ public class PipelineTests
     }
 
     public class ConstrainedBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse>
-        where TRequest : Ping, IRequest<TResponse>
+        where TRequest : Ping
         where TResponse : Pong
     {
         private readonly Logger _output;
@@ -196,10 +253,9 @@ public class PipelineTests
                 scanner.WithDefaultConventions();
                 scanner.AddAllTypesOf(typeof(IRequestHandler<,>));
             });
-            cfg.For<Logger>().Singleton().Use(output);
+            cfg.For<Logger>().Use(output);
             cfg.For<IPipelineBehavior<Ping, Pong>>().Add<OuterBehavior>();
             cfg.For<IPipelineBehavior<Ping, Pong>>().Add<InnerBehavior>();
-            cfg.For<ServiceFactory>().Use<ServiceFactory>(ctx => t => ctx.GetInstance(t));
             cfg.For<IMediator>().Use<Mediator>();
         });
 
@@ -208,6 +264,39 @@ public class PipelineTests
         var response = await mediator.Send(new Ping { Message = "Ping" });
 
         response.Message.ShouldBe("Ping Pong");
+
+        output.Messages.ShouldBe(new []
+        {
+            "Outer before",
+            "Inner before",
+            "Handler",
+            "Inner after",
+            "Outer after"
+        });
+    }
+
+    [Fact]
+    public async Task Should_wrap_void_with_behavior()
+    {
+        var output = new Logger();
+        var container = new Container(cfg =>
+        {
+            cfg.Scan(scanner =>
+            {
+                scanner.AssemblyContainingType(typeof(PublishTests));
+                scanner.IncludeNamespaceContainingType<Ping>();
+                scanner.WithDefaultConventions();
+                scanner.AddAllTypesOf(typeof(IRequestHandler<>));
+            });
+            cfg.For<Logger>().Use(output);
+            cfg.For<IPipelineBehavior<VoidPing, Unit>>().Add<OuterVoidBehavior>();
+            cfg.For<IPipelineBehavior<VoidPing, Unit>>().Add<InnerVoidBehavior>();
+            cfg.For<IMediator>().Use<Mediator>();
+        });
+
+        var mediator = container.GetInstance<IMediator>();
+
+        await mediator.Send(new VoidPing { Message = "Ping" });
 
         output.Messages.ShouldBe(new []
         {
@@ -232,22 +321,55 @@ public class PipelineTests
                 scanner.WithDefaultConventions();
                 scanner.AddAllTypesOf(typeof(IRequestHandler<,>));
             });
-            cfg.For<Logger>().Singleton().Use(output);
+            cfg.For<Logger>().Use(output);
 
             cfg.For(typeof(IPipelineBehavior<,>)).Add(typeof(OuterBehavior<,>));
             cfg.For(typeof(IPipelineBehavior<,>)).Add(typeof(InnerBehavior<,>));
 
-            cfg.For<ServiceFactory>().Use<ServiceFactory>(ctx => t => ctx.GetInstance(t));
             cfg.For<IMediator>().Use<Mediator>();
         });
-
-        container.GetAllInstances<IPipelineBehavior<Ping, Pong>>();
 
         var mediator = container.GetInstance<IMediator>();
 
         var response = await mediator.Send(new Ping { Message = "Ping" });
 
         response.Message.ShouldBe("Ping Pong");
+
+        output.Messages.ShouldBe(new[]
+        {
+            "Outer generic before",
+            "Inner generic before",
+            "Handler",
+            "Inner generic after",
+            "Outer generic after",
+        });
+    }
+
+    [Fact]
+    public async Task Should_wrap_void_generics_with_behavior()
+    {
+        var output = new Logger();
+        var container = new Container(cfg =>
+        {
+            cfg.Scan(scanner =>
+            {
+                scanner.AssemblyContainingType(typeof(PublishTests));
+                scanner.IncludeNamespaceContainingType<Ping>();
+                scanner.WithDefaultConventions();
+                scanner.AddAllTypesOf(typeof(IRequestHandler<,>));
+                scanner.AddAllTypesOf(typeof(IRequestHandler<>));
+            });
+            cfg.For<Logger>().Use(output);
+
+            cfg.For(typeof(IPipelineBehavior<,>)).Add(typeof(OuterBehavior<,>));
+            cfg.For(typeof(IPipelineBehavior<,>)).Add(typeof(InnerBehavior<,>));
+
+            cfg.For<IMediator>().Use<Mediator>();
+        });
+
+        var mediator = container.GetInstance<IMediator>();
+
+        await mediator.Send(new VoidPing { Message = "Ping" });
 
         output.Messages.ShouldBe(new[]
         {
@@ -272,13 +394,12 @@ public class PipelineTests
                 scanner.WithDefaultConventions();
                 scanner.AddAllTypesOf(typeof(IRequestHandler<,>));
             });
-            cfg.For<Logger>().Singleton().Use(output);
+            cfg.For<Logger>().Use(output);
 
             cfg.For(typeof(IPipelineBehavior<,>)).Add(typeof(OuterBehavior<,>));
             cfg.For(typeof(IPipelineBehavior<,>)).Add(typeof(InnerBehavior<,>));
             cfg.For(typeof(IPipelineBehavior<,>)).Add(typeof(ConstrainedBehavior<,>));
 
-            cfg.For<ServiceFactory>().Use<ServiceFactory>(ctx => t => ctx.GetInstance(t));
             cfg.For<IMediator>().Use<Mediator>();
         });
 
@@ -317,7 +438,7 @@ public class PipelineTests
         });
     }
 
-    [Fact(Skip = "StructureMap does not mix concrete and open generics. Use constraints instead.")]
+    [Fact(Skip = "Lamar does not mix concrete and open generics. Use constraints instead.")]
     public async Task Should_handle_concrete_and_open_generics()
     {
         var output = new Logger();
@@ -330,13 +451,12 @@ public class PipelineTests
                 scanner.WithDefaultConventions();
                 scanner.AddAllTypesOf(typeof(IRequestHandler<,>));
             });
-            cfg.For<Logger>().Singleton().Use(output);
+            cfg.For<Logger>().Use(output);
 
             cfg.For(typeof(IPipelineBehavior<,>)).Add(typeof(OuterBehavior<,>));
             cfg.For(typeof(IPipelineBehavior<,>)).Add(typeof(InnerBehavior<,>));
             cfg.For(typeof(IPipelineBehavior<Ping, Pong>)).Add(typeof(ConcreteBehavior));
 
-            cfg.For<ServiceFactory>().Use<ServiceFactory>(ctx => t => ctx.GetInstance(t));
             cfg.For<IMediator>().Use<Mediator>();
         });
 

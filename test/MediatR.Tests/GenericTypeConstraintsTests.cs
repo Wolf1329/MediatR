@@ -6,7 +6,7 @@ namespace MediatR.Tests;
 using System;
 using System.Linq;
 using Shouldly;
-using StructureMap;
+using Lamar;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -55,26 +55,26 @@ public class GenericTypeConstraintsTests
 
     public class Jing : IRequest
     {
-        public string Message { get; set; }
+        public string? Message { get; set; }
     }
 
-    public class JingHandler : IRequestHandler<Jing, Unit>
+    public class JingHandler : IRequestHandler<Jing>
     {
-        public Task<Unit> Handle(Jing request, CancellationToken cancellationToken)
+        public Task Handle(Jing request, CancellationToken cancellationToken)
         {
             // empty handle
-            return Unit.Task;
+            return Task.CompletedTask;
         }
     }
 
     public class Ping : IRequest<Pong>
     {
-        public string Message { get; set; }
+        public string? Message { get; set; }
     }
 
     public class Pong
     {
-        public string Message { get; set; }
+        public string? Message { get; set; }
     }
 
     public class PingHandler : IRequestHandler<Ping, Pong>
@@ -98,8 +98,8 @@ public class GenericTypeConstraintsTests
                 scanner.IncludeNamespaceContainingType<Jing>();
                 scanner.WithDefaultConventions();
                 scanner.AddAllTypesOf(typeof(IRequestHandler<,>));
+                scanner.AddAllTypesOf(typeof(IRequestHandler<>));
             });
-            cfg.For<ServiceFactory>().Use<ServiceFactory>(ctx => ctx.GetInstance);
             cfg.For<IMediator>().Use<Mediator>();
         });
 
@@ -120,15 +120,15 @@ public class GenericTypeConstraintsTests
 
         // Assert it is of type IRequest and IRequest<T>
         Assert.True(genericTypeConstraintsVoidReturn.IsIRequest);
-        Assert.True(genericTypeConstraintsVoidReturn.IsIRequestT);
+        Assert.False(genericTypeConstraintsVoidReturn.IsIRequestT);
         Assert.True(genericTypeConstraintsVoidReturn.IsIBaseRequest);
 
-        // Verify it is of IRequest and IBaseRequest and IRequest<Unit>
+        // Verify it is of IRequest and IBaseRequest
         var results = genericTypeConstraintsVoidReturn.Handle(jing);
 
-        Assert.Equal(3, results.Length);
+        Assert.Equal(2, results.Length);
 
-        results.ShouldContain(typeof(IRequest<Unit>));
+        results.ShouldNotContain(typeof(IRequest<Unit>));
         results.ShouldContain(typeof(IBaseRequest));
         results.ShouldContain(typeof(IRequest));
     }

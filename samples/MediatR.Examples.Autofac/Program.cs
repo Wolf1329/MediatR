@@ -1,3 +1,6 @@
+using Autofac.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
+
 namespace MediatR.Examples.Autofac;
 
 using global::Autofac;
@@ -19,17 +22,19 @@ internal static class Program
 
     private static IMediator BuildMediator(WrappingWriter writer)
     {
+
         var builder = new ContainerBuilder();
+
         builder.RegisterAssemblyTypes(typeof(IMediator).GetTypeInfo().Assembly).AsImplementedInterfaces();
 
         var mediatrOpenTypes = new[]
         {
-            typeof(IRequestHandler<,>),
-            typeof(IRequestExceptionHandler<,,>),
-            typeof(IRequestExceptionAction<,>),
-            typeof(INotificationHandler<>),
-            typeof(IStreamRequestHandler<,>)
-        };
+                typeof(IRequestHandler<,>),
+                typeof(IRequestExceptionHandler<,,>),
+                typeof(IRequestExceptionAction<,>),
+                typeof(INotificationHandler<>),
+                typeof(IStreamRequestHandler<,>)
+            };
 
         foreach (var mediatrOpenType in mediatrOpenTypes)
         {
@@ -51,7 +56,8 @@ internal static class Program
 
         builder.RegisterGeneric(typeof(RequestPostProcessorBehavior<,>)).As(typeof(IPipelineBehavior<,>));
         builder.RegisterGeneric(typeof(RequestPreProcessorBehavior<,>)).As(typeof(IPipelineBehavior<,>));
-        builder.RegisterGeneric(typeof(RequestExceptionActionProcessorBehavior<,>)).As(typeof(IPipelineBehavior<,>));
+        builder.RegisterGeneric(typeof(RequestExceptionActionProcessorBehavior<,>))
+            .As(typeof(IPipelineBehavior<,>));
         builder.RegisterGeneric(typeof(RequestExceptionProcessorBehavior<,>)).As(typeof(IPipelineBehavior<,>));
         builder.RegisterGeneric(typeof(GenericRequestPreProcessor<>)).As(typeof(IRequestPreProcessor<>));
         builder.RegisterGeneric(typeof(GenericRequestPostProcessor<,>)).As(typeof(IRequestPostProcessor<,>));
@@ -59,13 +65,10 @@ internal static class Program
         builder.RegisterGeneric(typeof(ConstrainedRequestPostProcessor<,>)).As(typeof(IRequestPostProcessor<,>));
         builder.RegisterGeneric(typeof(ConstrainedPingedHandler<>)).As(typeof(INotificationHandler<>));
 
-        builder.Register<ServiceFactory>(ctx =>
-        {
-            var c = ctx.Resolve<IComponentContext>();
-            return t => c.Resolve(t);
-        });
 
-        var container = builder.Build();
+        var services = new ServiceCollection();
+        
+        builder.Populate(services);
 
         // The below returns:
         //  - RequestPreProcessorBehavior
@@ -79,7 +82,9 @@ internal static class Program
         //    .Resolve<IEnumerable<IPipelineBehavior<Ping, Pong>>>()
         //    .ToList();
 
-        var mediator = container.Resolve<IMediator>();
+        var container = builder.Build();
+        var serviceProvider = new AutofacServiceProvider(container);
+        var mediator = serviceProvider.GetRequiredService<IMediator>();
 
         return mediator;
     }

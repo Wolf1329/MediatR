@@ -8,14 +8,14 @@ using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 using Shouldly;
-using StructureMap;
+using Lamar;
 using Xunit;
 
 public class PublishTests
 {
     public class Ping : INotification
     {
-        public string Message { get; set; }
+        public string? Message { get; set; }
     }
 
     public class PongHandler : INotificationHandler<Ping>
@@ -65,7 +65,6 @@ public class PublishTests
             });
             cfg.For<TextWriter>().Use(writer);
             cfg.For<IMediator>().Use<Mediator>();
-            cfg.For<ServiceFactory>().Use<ServiceFactory>(ctx => t => ctx.GetInstance(t));
         });
 
         var mediator = container.GetInstance<IMediator>();
@@ -94,7 +93,6 @@ public class PublishTests
             });
             cfg.For<TextWriter>().Use(writer);
             cfg.For<IMediator>().Use<Mediator>();
-            cfg.For<ServiceFactory>().Use<ServiceFactory>(ctx => t => ctx.GetInstance(t));
         });
 
         var mediator = container.GetInstance<IMediator>();
@@ -109,16 +107,30 @@ public class PublishTests
 
     public class SequentialMediator : Mediator
     {
-        public SequentialMediator(ServiceFactory serviceFactory)
-            : base(serviceFactory)
+        public SequentialMediator(IServiceProvider serviceProvider)
+            : base(serviceProvider)
         {
         }
 
-        protected override async Task PublishCore(IEnumerable<Func<INotification, CancellationToken, Task>> allHandlers, INotification notification, CancellationToken cancellationToken)
+        protected override async Task PublishCore(IEnumerable<NotificationHandlerExecutor> allHandlers, INotification notification, CancellationToken cancellationToken)
         {
             foreach (var handler in allHandlers)
             {
-                await handler(notification, cancellationToken).ConfigureAwait(false);
+                await handler.HandlerCallback(notification, cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    public class SequentialPublisher : INotificationPublisher
+    {
+        public int CallCount { get; set; }
+
+        public async Task Publish(IEnumerable<NotificationHandlerExecutor> handlerExecutors, INotification notification, CancellationToken cancellationToken)
+        {
+            foreach (var handler in handlerExecutors)
+            {
+                await handler.HandlerCallback(notification, cancellationToken).ConfigureAwait(false);
+                CallCount++;
             }
         }
     }
@@ -140,7 +152,6 @@ public class PublishTests
             });
             cfg.For<TextWriter>().Use(writer);
             cfg.For<IMediator>().Use<SequentialMediator>();
-            cfg.For<ServiceFactory>().Use<ServiceFactory>(ctx => t => ctx.GetInstance(t));
         });
 
         var mediator = container.GetInstance<IMediator>();
@@ -150,6 +161,37 @@ public class PublishTests
         var result = builder.ToString().Split(new[] { Environment.NewLine }, StringSplitOptions.None);
         result.ShouldContain("Ping Pong");
         result.ShouldContain("Ping Pung");
+    }
+
+    [Fact]
+    public async Task Should_override_with_sequential_firing_through_injection()
+    {
+        var builder = new StringBuilder();
+        var writer = new StringWriter(builder);
+        var publisher = new SequentialPublisher();
+
+        var container = new Container(cfg =>
+        {
+            cfg.Scan(scanner =>
+            {
+                scanner.AssemblyContainingType(typeof(PublishTests));
+                scanner.IncludeNamespaceContainingType<Ping>();
+                scanner.WithDefaultConventions();
+                scanner.AddAllTypesOf(typeof(INotificationHandler<>));
+            });
+            cfg.For<TextWriter>().Use(writer);
+            cfg.For<INotificationPublisher>().Use(publisher);
+            cfg.For<IMediator>().Use<Mediator>();
+        });
+
+        var mediator = container.GetInstance<IMediator>();
+
+        await mediator.Publish(new Ping { Message = "Ping" });
+
+        var result = builder.ToString().Split(new[] { Environment.NewLine }, StringSplitOptions.None);
+        result.ShouldContain("Ping Pong");
+        result.ShouldContain("Ping Pung");
+        publisher.CallCount.ShouldBe(2);
     }
 
     [Fact]
@@ -169,13 +211,13 @@ public class PublishTests
             });
             cfg.For<TextWriter>().Use(writer);
             cfg.For<IMediator>().Use<SequentialMediator>();
-            cfg.For<ServiceFactory>().Use<ServiceFactory>(ctx => t => ctx.GetInstance(t));
         });
 
         var mediator = container.GetInstance<IMediator>();
 
-        INotification notification = new Ping { Message = "Ping" };
-        await mediator.Publish(notification);
+        // wrap notifications in an array, so this test won't break on a 'replace with var' refactoring
+        var notifications = new INotification[] { new Ping { Message = "Ping" } };
+        await mediator.Publish(notifications[0]);
 
         var result = builder.ToString().Split(new[] { Environment.NewLine }, StringSplitOptions.None);
         result.ShouldContain("Ping Pong");
@@ -199,7 +241,6 @@ public class PublishTests
             });
             cfg.For<TextWriter>().Use(writer);
             cfg.For<IPublisher>().Use<Mediator>();
-            cfg.For<ServiceFactory>().Use<ServiceFactory>(ctx => t => ctx.GetInstance(t));
         });
 
         var mediator = container.GetInstance<IPublisher>();

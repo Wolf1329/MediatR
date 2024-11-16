@@ -1,5 +1,3 @@
-using System.Diagnostics.CodeAnalysis;
-
 namespace MediatR.Pipeline;
 
 /// <summary>
@@ -14,7 +12,7 @@ public class RequestExceptionHandlerState<TResponse>
     public bool Handled { get; private set; }
 
     /// <summary>
-    /// The response that is returned if <see cref="Handled"/> is  <code>true</code>.
+    /// The response that is returned if <see cref="Handled"/> is <code>true</code>.
     /// </summary>
     public TResponse? Response { get; private set; }
 

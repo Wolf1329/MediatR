@@ -1,6 +1,7 @@
 namespace MediatR.Pipeline;
 
 using Internal;
+using Microsoft.Extensions.DependencyInjection;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -10,18 +11,17 @@ using System.Threading;
 using System.Threading.Tasks;
 
 /// <summary>
-/// Behavior for executing all <see cref="IRequestExceptionAction{TRequest,TException}"/>
-///     or <see cref="RequestExceptionAction{TRequest,TResponse}"/> instances
+/// Behavior for executing all <see cref="IRequestExceptionAction{TRequest,TException}"/> instances
 ///     after an exception is thrown by the following pipeline steps
 /// </summary>
 /// <typeparam name="TRequest">Request type</typeparam>
 /// <typeparam name="TResponse">Response type</typeparam>
 public class RequestExceptionActionProcessorBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse>
-    where TRequest : IRequest<TResponse>
+    where TRequest : notnull
 {
-    private readonly ServiceFactory _serviceFactory;
+    private readonly IServiceProvider _serviceProvider;
 
-    public RequestExceptionActionProcessorBehavior(ServiceFactory serviceFactory) => _serviceFactory = serviceFactory;
+    public RequestExceptionActionProcessorBehavior(IServiceProvider serviceProvider) => _serviceProvider = serviceProvider;
 
     public async Task<TResponse> Handle(TRequest request, RequestHandlerDelegate<TResponse> next, CancellationToken cancellationToken)
     {
@@ -35,9 +35,9 @@ public class RequestExceptionActionProcessorBehavior<TRequest, TResponse> : IPip
 
             var actionsForException = exceptionTypes
                 .SelectMany(exceptionType => GetActionsForException(exceptionType, request))
-                .GroupBy(actionForException => actionForException.Action.GetType())
-                .Select(actionForException => actionForException.First())
-                .Select(actionForException => (MethodInfo: GetMethodInfoForAction(actionForException.ExceptionType), actionForException.Action))
+                .GroupBy(static actionForException => actionForException.Action.GetType())
+                .Select(static actionForException => actionForException.First())
+                .Select(static actionForException => (MethodInfo: GetMethodInfoForAction(actionForException.ExceptionType), actionForException.Action))
                 .ToList();
 
             foreach (var actionForException in actionsForException)
@@ -72,7 +72,7 @@ public class RequestExceptionActionProcessorBehavior<TRequest, TResponse> : IPip
         var exceptionActionInterfaceType = typeof(IRequestExceptionAction<,>).MakeGenericType(typeof(TRequest), exceptionType);
         var enumerableExceptionActionInterfaceType = typeof(IEnumerable<>).MakeGenericType(exceptionActionInterfaceType);
 
-        var actionsForException = (IEnumerable<object>)_serviceFactory(enumerableExceptionActionInterfaceType);
+        var actionsForException = (IEnumerable<object>)_serviceProvider.GetRequiredService(enumerableExceptionActionInterfaceType);
 
         return HandlersOrderer.Prioritize(actionsForException.ToList(), request)
             .Select(action => (exceptionType, action));

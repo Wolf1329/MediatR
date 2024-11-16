@@ -5,31 +5,31 @@ using System.Threading;
 using System.Threading.Tasks;
 using MediatR.Pipeline;
 using Shouldly;
-using StructureMap;
+using Lamar;
 using Xunit;
 
 public class RequestExceptionActionTests
 {
     public class Ping : IRequest<Pong>
     {
-        public string Message { get; set; }
+        public string? Message { get; set; }
     }
 
     public class Pong
     {
-        public string Message { get; set; }
+        public string? Message { get; set; }
     }
 
     public abstract class PingPongException : Exception
     {
-        protected PingPongException(string message) : base(message + " Thrown")
+        protected PingPongException(string? message) : base(message + " Thrown")
         {
         }
     }
 
     public class PingException : PingPongException
     {
-        public PingException(string message) : base(message)
+        public PingException(string? message) : base(message)
         {
         }
     }
@@ -49,7 +49,7 @@ public class RequestExceptionActionTests
         }
     }
 
-    public class GenericExceptionAction<TRequest> : IRequestExceptionAction<TRequest>
+    public class GenericExceptionAction<TRequest> : IRequestExceptionAction<TRequest, Exception> where TRequest : notnull
     {
         public int ExecutionCount { get; private set; }
 
@@ -60,7 +60,7 @@ public class RequestExceptionActionTests
         }
     }
 
-    public class PingPongExceptionAction<TRequest> : IRequestExceptionAction<TRequest, PingPongException>
+    public class PingPongExceptionAction<TRequest> : IRequestExceptionAction<TRequest, PingPongException> where TRequest : notnull
     {
         public bool Executed { get; private set; }
 
@@ -106,7 +106,6 @@ public class RequestExceptionActionTests
             cfg.For<IRequestExceptionAction<Ping, PingPongException>>().Use(_ => pingPongExceptionAction);
             cfg.For<IRequestExceptionAction<Ping, PongException>>().Use(_ => pongExceptionAction);
             cfg.For(typeof(IPipelineBehavior<,>)).Add(typeof(RequestExceptionActionProcessorBehavior<,>));
-            cfg.For<ServiceFactory>().Use<ServiceFactory>(ctx => t => ctx.GetInstance(t));
             cfg.For<IMediator>().Use<Mediator>();
         });
 
@@ -127,9 +126,8 @@ public class RequestExceptionActionTests
         var container = new Container(cfg =>
         {
             cfg.For<IRequestHandler<Ping, Pong>>().Use<PingHandler>();
-            cfg.For<IRequestExceptionAction<Ping>>().Use(_ => genericExceptionAction);
+            cfg.For<IRequestExceptionAction<Ping, Exception>>().Use(_ => genericExceptionAction);
             cfg.For(typeof(IPipelineBehavior<,>)).Add(typeof(RequestExceptionActionProcessorBehavior<,>));
-            cfg.For<ServiceFactory>().Use<ServiceFactory>(ctx => t => ctx.GetInstance(t));
             cfg.For<IMediator>().Use<Mediator>();
         });
 

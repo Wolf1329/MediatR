@@ -5,8 +5,9 @@ namespace MediatR.Tests;
 using System;
 using System.Threading.Tasks;
 using Shouldly;
-using StructureMap;
+using Lamar;
 using Xunit;
+using Lamar.IoC;
 
 public class ExceptionTests
 {
@@ -60,11 +61,11 @@ public class ExceptionTests
         }
     }
 
-    public class VoidNullPingHandler : IRequestHandler<VoidNullPing, Unit>
+    public class VoidNullPingHandler : IRequestHandler<VoidNullPing>
     {
-        public Task<Unit> Handle(VoidNullPing request, CancellationToken cancellationToken)
+        public Task Handle(VoidNullPing request, CancellationToken cancellationToken)
         {
-            return Unit.Task;
+            return Task.CompletedTask;
         }
     }
 
@@ -72,7 +73,6 @@ public class ExceptionTests
     {
         var container = new Container(cfg =>
         {
-            cfg.For<ServiceFactory>().Use<ServiceFactory>(ctx => ctx.GetInstance);
             cfg.For<IMediator>().Use<Mediator>();
         });
         _mediator = container.GetInstance<IMediator>();
@@ -81,19 +81,19 @@ public class ExceptionTests
     [Fact]
     public async Task Should_throw_for_send()
     {
-        await Should.ThrowAsync<InvalidOperationException>(async () => await _mediator.Send(new Ping()));
+        await Should.ThrowAsync<LamarMissingRegistrationException>(async () => await _mediator.Send(new Ping()));
     }
 
     [Fact]
     public async Task Should_throw_for_void_send()
     {
-        await Should.ThrowAsync<InvalidOperationException>(async () => await _mediator.Send(new VoidPing()));
+        await Should.ThrowAsync<LamarMissingRegistrationException>(async () => await _mediator.Send(new VoidPing()));
     }
 
     [Fact]
     public async Task Should_not_throw_for_publish()
     {
-        Exception ex = null;
+        Exception ex = null!;
         try
         {
             await _mediator.Publish(new Pinged());
@@ -108,19 +108,19 @@ public class ExceptionTests
     [Fact]
     public async Task Should_throw_for_async_send()
     {
-        await Should.ThrowAsync<InvalidOperationException>(async () => await _mediator.Send(new AsyncPing()));
+        await Should.ThrowAsync<LamarMissingRegistrationException>(async () => await _mediator.Send(new AsyncPing()));
     }
 
     [Fact]
     public async Task Should_throw_for_async_void_send()
     {
-        await Should.ThrowAsync<InvalidOperationException>(async () => await _mediator.Send(new AsyncVoidPing()));
+        await Should.ThrowAsync<LamarMissingRegistrationException>(async () => await _mediator.Send(new AsyncVoidPing()));
     }
 
     [Fact]
     public async Task Should_not_throw_for_async_publish()
     {
-        Exception ex = null;
+        Exception ex = null!;
         try
         {
             await _mediator.Publish(new AsyncPinged());
@@ -144,12 +144,11 @@ public class ExceptionTests
                 scanner.WithDefaultConventions();
                 scanner.AddAllTypesOf(typeof(IRequestHandler<,>));
             });
-            cfg.For<ServiceFactory>().Use<ServiceFactory>(ctx => t => ctx.GetInstance(t));
             cfg.For<IMediator>().Use<Mediator>();
         });
         var mediator = container.GetInstance<IMediator>();
 
-        NullPing request = null;
+        NullPing request = null!;
 
         await Should.ThrowAsync<ArgumentNullException>(async () => await mediator.Send(request));
     }
@@ -166,12 +165,11 @@ public class ExceptionTests
                 scanner.WithDefaultConventions();
                 scanner.AddAllTypesOf(typeof(IRequestHandler<,>));
             });
-            cfg.For<ServiceFactory>().Use<ServiceFactory>(ctx => t => ctx.GetInstance(t));
             cfg.For<IMediator>().Use<Mediator>();
         });
         var mediator = container.GetInstance<IMediator>();
 
-        VoidNullPing request = null;
+        VoidNullPing request = null!;
 
         await Should.ThrowAsync<ArgumentNullException>(async () => await mediator.Send(request));
     }
@@ -188,12 +186,11 @@ public class ExceptionTests
                 scanner.WithDefaultConventions();
                 scanner.AddAllTypesOf(typeof(IRequestHandler<,>));
             });
-            cfg.For<ServiceFactory>().Use<ServiceFactory>(ctx => t => ctx.GetInstance(t));
             cfg.For<IMediator>().Use<Mediator>();
         });
         var mediator = container.GetInstance<IMediator>();
 
-        NullPinged notification = null;
+        NullPinged notification = null!;
 
         await Should.ThrowAsync<ArgumentNullException>(async () => await mediator.Publish(notification));
     }
@@ -210,12 +207,11 @@ public class ExceptionTests
                 scanner.WithDefaultConventions();
                 scanner.AddAllTypesOf(typeof(IRequestHandler<,>));
             });
-            cfg.For<ServiceFactory>().Use<ServiceFactory>(ctx => t => ctx.GetInstance(t));
             cfg.For<IMediator>().Use<Mediator>();
         });
         var mediator = container.GetInstance<IMediator>();
 
-        object notification = null;
+        object notification = null!;
 
         await Should.ThrowAsync<ArgumentNullException>(async () => await mediator.Publish(notification));
     }
@@ -232,7 +228,6 @@ public class ExceptionTests
                 scanner.WithDefaultConventions();
                 scanner.AddAllTypesOf(typeof(IRequestHandler<,>));
             });
-            cfg.For<ServiceFactory>().Use<ServiceFactory>(ctx => t => ctx.GetInstance(t));
             cfg.For<IMediator>().Use<Mediator>();
         });
         var mediator = container.GetInstance<IMediator>();
@@ -249,7 +244,7 @@ public class ExceptionTests
 
     public class PingExceptionHandler : IRequestHandler<PingException>
     {
-        public Task<Unit> Handle(PingException request, CancellationToken cancellationToken)
+        public Task Handle(PingException request, CancellationToken cancellationToken)
         {
             throw new NotImplementedException();
         }
@@ -266,8 +261,8 @@ public class ExceptionTests
                 scanner.IncludeNamespaceContainingType<Ping>();
                 scanner.WithDefaultConventions();
                 scanner.AddAllTypesOf(typeof(IRequestHandler<,>));
+                scanner.AddAllTypesOf(typeof(IRequestHandler<>));
             });
-            cfg.For<ServiceFactory>().Use<ServiceFactory>(ctx => t => ctx.GetInstance(t));
             cfg.For<IMediator>().Use<Mediator>();
         });
         var mediator = container.GetInstance<IMediator>();
@@ -289,7 +284,6 @@ public class ExceptionTests
                 scanner.WithDefaultConventions();
                 scanner.AddAllTypesOf(typeof(IRequestHandler<,>));
             });
-            cfg.For<ServiceFactory>().Use<ServiceFactory>(ctx => t => ctx.GetInstance(t));
             cfg.For<IMediator>().Use<Mediator>();
         });
         var mediator = container.GetInstance<IMediator>();
@@ -316,8 +310,8 @@ public class ExceptionTests
                 scanner.IncludeNamespaceContainingType<Ping>();
                 scanner.WithDefaultConventions();
                 scanner.AddAllTypesOf(typeof(IRequestHandler<,>));
+                scanner.AddAllTypesOf(typeof(IRequestHandler<>));
             });
-            cfg.For<ServiceFactory>().Use<ServiceFactory>(ctx => t => ctx.GetInstance(t));
             cfg.For<IMediator>().Use<Mediator>();
         });
         var mediator = container.GetInstance<IMediator>();
